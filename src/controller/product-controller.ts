@@ -17,3 +17,19 @@ export const getAllProducts = async (req: Request, res: Response) => {
         res.status(500).json({ message: "Error fetching products", error });
     }
 };
+
+export const getProductById = async (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    try {
+        const product = await productRepository.findOne({
+            where: { id: Number(id) },
+            relations: ["images"],
+        });
+        if (!product) {
+            return res.status(404).json({ error: "Product not found" });
+        }
+    } catch (error) {
+        res.status(500).json({ message: "Error fetching product", error });
+    }
+};
