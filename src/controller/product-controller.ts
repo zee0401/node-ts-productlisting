@@ -147,3 +147,42 @@ export const updateProduct = async (
         res.status(500).json({ message: "Error updating product", error });
     }
 };
+
+export const deleteProduct = async (
+    req: Request,
+    res: Response
+): Promise<any> => {
+    const { id } = req.params;
+
+    try {
+        const product = await productRepository.findOne({
+            where: { id: parseInt(id) },
+            relations: ["images"],
+        });
+
+        if (!product) {
+            res.status(404).json({ error: "Product not found" });
+            return;
+        }
+        if (product.images.length > 0) {
+            for (const image of product.images) {
+                const filePath = path.join(
+                    __dirname,
+                    "../../uploads",
+                    image.url
+                );
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            }
+            const imageIds = product.images.map((img) => img.id);
+            await productImageRepository.delete(imageIds);
+        }
+
+        await productRepository.delete(product.id);
+
+        res.status(200).json({ message: "Product deleted successfully" });
+    } catch (error) {
+        res.status(500).json({ message: "Error deleting product", error });
+    }
+};
