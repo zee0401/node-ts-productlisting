@@ -4,11 +4,7 @@ import { ProductImage } from "../entity/Product-Image";
 
 export const AppDataSource = new DataSource({
     type: "postgres",
-    host: process.env.DB_HOST,
-    port: 5432,
-    username: "postgres",
-    password: "",
-    database: process.env.DB_DATABASE,
+    url: process.env.DATABASE_URL,
     synchronize: true,
     logging: true,
     entities: [Product, ProductImage],
