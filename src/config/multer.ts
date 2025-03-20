@@ -2,6 +2,7 @@ import multer, { StorageEngine } from "multer";
 import path from "path";
 import fs from "fs";
 import { Request } from "express";
+import { v4 as uuidv4 } from "uuid";
 
 const storage: StorageEngine = multer.diskStorage({
     destination: (
@@ -22,7 +23,9 @@ const storage: StorageEngine = multer.diskStorage({
         file: Express.Multer.File,
         cb: (error: Error | null, filename: string) => void
     ) => {
-        cb(null, `${Date.now()}-${file.originalname}`);
+        const uniqueSuffix = `${Date.now()}-${uuidv4()}`;
+        const ext = path.extname(file.originalname);
+        cb(null, `${uniqueSuffix}${ext}`);
     },
 });
 
