@@ -6,7 +6,7 @@ import {
     updateProduct,
     deleteProduct,
 } from "../controller/product-controller";
-import upload from "../config/multer";
+import upload from "../middleware/upload";
 
 const router = Router();
 

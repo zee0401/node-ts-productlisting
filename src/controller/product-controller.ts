@@ -2,8 +2,7 @@ import { Request, Response } from "express";
 import { Product } from "../entity/Product";
 import { ProductImage } from "../entity/Product-Image";
 import { AppDataSource } from "../config/data-source";
-import path from "path";
-import fs from "fs";
+import { v2 as cloudinary } from "cloudinary";
 
 const productRepository = AppDataSource.getRepository(Product);
 const productImageRepository = AppDataSource.getRepository(ProductImage);
@@ -47,79 +46,63 @@ export const getProductById = async (
 export const createProduct = async (
     req: Request,
     res: Response
-): Promise<any> => {
+): Promise<void> => {
     const { sku, name, price } = req.body;
     const files = req.files as Express.Multer.File[];
 
-    console.log(req.body, "req.body");
-
     try {
         if (!sku || !name || !price) {
-            return res.status(400).json({ error: "Missing required fields" });
+            res.status(400).json({ error: "Missing required fields" });
+            return;
         }
 
         const product = new Product();
         product.sku = sku;
         product.name = name;
-        product.price = parseInt(price);
+        product.price = parseFloat(price);
 
         const savedProduct = await productRepository.save(product);
 
-        if (!savedProduct) {
-            throw new Error("Error saving product");
-        }
-
         if (files && files.length > 0) {
-            try {
-                const productImages = files.map((file) => {
-                    const img = new ProductImage();
-                    img.url = `/uploads/${file.filename}`;
-                    img.product = savedProduct;
-                    return img;
-                });
+            const productImages = files.map((file) => {
+                console.log("Uploaded File:", file);
 
-                await productImageRepository.save(productImages);
-            } catch (imageError) {
-                console.error(
-                    "Error saving images, deleting uploaded files..."
-                );
-                files.forEach((file) => {
-                    const filePath = path.join(
-                        __dirname,
-                        "../uploads",
-                        file.filename
-                    );
+                const img = new ProductImage();
+                img.url = (file as any).path || (file as any).secure_url || "";
+                img.product = savedProduct;
+                return img;
+            });
 
-                    if (fs.existsSync(filePath)) {
-                        fs.unlinkSync(filePath);
-                    }
-                });
-
-                throw new Error("Error saving product images");
-            }
+            await productImageRepository.save(productImages);
         }
 
-        res.status(201).json(savedProduct);
+        const productWithImages = await productRepository.findOne({
+            where: { id: savedProduct.id },
+            relations: ["images"],
+        });
+
+        if (!productWithImages) {
+            res.status(404).json({ error: "Product not found" });
+            return;
+        }
+
+        const response = {
+            id: productWithImages.id,
+            sku: productWithImages.sku,
+            name: productWithImages.name,
+            price: productWithImages.price,
+            images: productWithImages.images.map((img) => ({
+                id: img.id,
+                url: img.url,
+            })),
+        };
+
+        res.status(201).json(response);
     } catch (error) {
         console.error("Create Product Error:", error);
-
-        if (files && files.length > 0) {
-            files.forEach((file) => {
-                const filePath = path.join(
-                    __dirname,
-                    "../uploads",
-                    file.filename
-                );
-                if (fs.existsSync(filePath)) {
-                    fs.unlinkSync(filePath);
-                }
-            });
-        }
-        const errorMessage =
-            error instanceof Error ? error.message : "Unknown error";
         res.status(500).json({
             message: "Error creating product",
-            error: errorMessage,
+            error: error instanceof Error ? error.message : "Unknown error",
         });
     }
 };
@@ -127,10 +110,10 @@ export const createProduct = async (
 export const updateProduct = async (
     req: Request,
     res: Response
-): Promise<any> => {
+): Promise<void> => {
     const { id } = req.params;
     const { sku, name, price, imageIdsToDelete } = req.body;
-    const files = (req.files as Express.Multer.File[]) || [];
+    const files = req.files as Express.Multer.File[];
 
     try {
         const product = await productRepository.findOne({
@@ -139,7 +122,8 @@ export const updateProduct = async (
         });
 
         if (!product) {
-            return res.status(404).json({ error: "Product not found" });
+            res.status(404).json({ error: "Product not found" });
+            return;
         }
 
         if (sku) product.sku = sku;
@@ -153,58 +137,58 @@ export const updateProduct = async (
                 });
 
                 if (image) {
-                    const filePath = path.join(
-                        __dirname,
-                        "../../uploads",
-                        path.basename(image.url)
-                    );
-
-                    if (fs.existsSync(filePath)) {
-                        fs.unlinkSync(filePath);
+                    const publicId = image.url.split("/").pop()?.split(".")[0];
+                    if (publicId) {
+                        await cloudinary.uploader.destroy(publicId);
                     }
-
                     await productImageRepository.delete(image.id);
                 }
             }
-
-            product.images = product.images.filter(
-                (img) => !imageIdsToDelete.includes(img.id)
-            );
         }
 
-        if (files.length > 0) {
+        if (files && files.length > 0) {
             const newImages = files.map((file) => {
                 const img = new ProductImage();
-                img.url = `/uploads/${file.filename}`;
+                img.url = file.path;
                 img.product = product;
                 return img;
             });
 
-            await productImageRepository.save(newImages);
+            console.log("New Images:", newImages);
+            console.log(
+                "New Images:",
+                newImages.map((img) => img.url)
+            );
             product.images = [...product.images, ...newImages];
+            await productImageRepository.save(product.images);
+        }
+        const updatedProduct = await productRepository.save(product);
+
+        const productWithImages = await productRepository.findOne({
+            where: { id: updatedProduct.id },
+            relations: ["images"],
+        });
+
+        if (!productWithImages) {
+            res.status(404).json({ error: "Product not found after update" });
+            return;
         }
 
-        await productRepository.save(product);
-
-        const productResponse = {
-            id: product.id,
-            sku: product.sku,
-            name: product.name,
-            price: product.price,
-            images: product.images.map((img) => ({
+        const response = {
+            id: productWithImages.id,
+            sku: productWithImages.sku,
+            name: productWithImages.name,
+            price: productWithImages.price,
+            images: productWithImages.images.map((img) => ({
                 id: img.id,
                 url: img.url,
             })),
         };
 
-        return res.status(200).json({
-            message: "Product updated successfully",
-            product: productResponse,
-        });
+        res.status(200).json(response);
     } catch (error) {
         console.error("Update Product Error:", error);
-
-        return res.status(500).json({
+        res.status(500).json({
             message: "Error updating product",
             error: error instanceof Error ? error.message : "Unknown error",
         });
@@ -214,7 +198,7 @@ export const updateProduct = async (
 export const deleteProduct = async (
     req: Request,
     res: Response
-): Promise<any> => {
+): Promise<void> => {
     const { id } = req.params;
 
     try {
@@ -224,41 +208,25 @@ export const deleteProduct = async (
         });
 
         if (!product) {
-            return res.status(404).json({ error: "Product not found" });
+            res.status(404).json({ error: "Product not found" });
+            return;
         }
 
         if (product.images.length > 0) {
-            for (const image of product.images) {
-                const filePath = path.join(__dirname, "..", image.url);
-
-                console.log("Attempting to delete:", filePath);
-
-                if (fs.existsSync(filePath)) {
-                    fs.unlink(filePath, (err) => {
-                        if (err) {
-                            console.error("Error deleting file:", err);
-                        } else {
-                            console.log("Deleted file:", filePath);
-                        }
-                    });
-                } else {
-                    console.warn("File not found:", filePath);
-                }
-            }
-
-            const imageIds = product.images.map((img) => img.id);
-            await productImageRepository.delete(imageIds);
+            await Promise.all(
+                product.images.map(async (image) => {
+                    const publicId = image.url.split("/").pop()?.split(".")[0];
+                    if (publicId) {
+                        await cloudinary.uploader.destroy(publicId);
+                    }
+                })
+            );
         }
 
         await productRepository.delete(product.id);
-
-        return res.status(200).json({
-            message: "Product and associated images deleted successfully",
-        });
+        res.status(204).send();
     } catch (error) {
         console.error("Delete error:", error);
-        return res
-            .status(500)
-            .json({ message: "Error deleting product", error });
+        res.status(500).json({ message: "Error deleting product", error });
     }
 };

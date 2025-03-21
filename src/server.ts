@@ -1,6 +1,5 @@
 import express from "express";
 import cors from "cors";
-import path from "path";
 import { AppDataSource } from "./config/data-source";
 import productRouter from "./routes/product-router";
 import imageRouter from "./routes/productImage-router";
@@ -11,10 +10,6 @@ dotenv.config();
 const PORT = process.env.PORT || 3000;
 
 const app = express();
-
-app.use("/uploads", express.static(path.join(__dirname, "./uploads")));
-
-console.log(path.join(__dirname, "./uploads"));
 
 app.use(cors());
 

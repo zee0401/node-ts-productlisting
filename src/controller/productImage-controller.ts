@@ -2,8 +2,7 @@ import { Request, Response } from "express";
 import { ProductImage } from "../entity/Product-Image";
 import { AppDataSource } from "../config/data-source";
 import { Product } from "../entity/Product";
-import fs from "fs";
-import path from "path";
+import { v2 as cloudinary } from "cloudinary";
 
 const productImageRepository = AppDataSource.getRepository(ProductImage);
 const productRepository = AppDataSource.getRepository(Product);
@@ -11,14 +10,19 @@ const productRepository = AppDataSource.getRepository(Product);
 export const getAllProductImages = async (
     req: Request,
     res: Response
-): Promise<any> => {
+): Promise<void> => {
     try {
-        const productImages: any = await productRepository.findOne({
+        const product = await productRepository.findOne({
             where: { id: Number(req.params.id) },
             relations: ["images"],
         });
 
-        res.status(200).json(productImages);
+        if (!product) {
+            res.status(404).json({ error: "Product not found" });
+            return;
+        }
+
+        res.status(200).json(product.images);
     } catch (error) {
         console.error("Error fetching product images:", error);
         res.status(500).json({ error: "Internal server error" });
@@ -28,7 +32,7 @@ export const getAllProductImages = async (
 export const deleteProductImage = async (
     req: Request,
     res: Response
-): Promise<any> => {
+): Promise<void> => {
     const { productId, imageId } = req.params;
 
     try {
@@ -37,19 +41,24 @@ export const deleteProductImage = async (
         });
 
         if (!productImage) {
-            return res.status(404).json({ error: "Product image not found" });
+            res.status(404).json({ error: "Product image not found" });
+            return;
         }
 
-        const filePath = path.join(__dirname, "../", productImage.url);
+        const publicId = productImage.url.split("/").pop()?.split(".")[0];
 
-        if (fs.existsSync(filePath)) {
-            await fs.promises.unlink(filePath);
-            await productImageRepository.delete(productImage.id);
-        } else {
-            return res.status(404).json({ error: "File not found" });
+        if (!publicId) {
+            res.status(400).json({ error: "Invalid image URL" });
+            return;
         }
+
+        await cloudinary.uploader.destroy(publicId);
+
+        await productImageRepository.delete(productImage.id);
+
         res.status(200).json({ message: "Product image deleted successfully" });
     } catch (error) {
+        console.error("Error deleting product image:", error);
         res.status(500).json({ error: "Internal server error" });
     }
 };
